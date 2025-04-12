@@ -1,92 +1,139 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Self-Learning Chess AI</title>
   <style>
     html, body {
       margin: 0;
       padding: 0;
-      height: 100%;
-      overflow: hidden;
-    }
-    #board {
       width: 100vw;
       height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #222;
     }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      width: 90vmin;
+      height: 90vmin;
+      border: 4px solid #fff;
+    }
+    .square {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 4vmin;
+      font-family: serif;
+    }
+    .light { background-color: #f0d9b5; }
+    .dark { background-color: #b58863; }
+    .highlight { outline: 3px solid yellow; }
   </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.12.0/chess.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard.min.css" />
 </head>
 <body>
   <div id="board"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0/chess.min.js"></script>
   <script>
+    const boardEl = document.getElementById('board');
     const game = new Chess();
-    let qTable = JSON.parse(localStorage.getItem("chessAI_qTable") || "{}");
+    const pieceIcons = {
+      p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
+      P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔'
+    };
 
-    function saveQTable() {
-      localStorage.setItem("chessAI_qTable", JSON.stringify(qTable));
-    }
-
-    function learnFromMove(prevFen, move, reward) {
-      if (!qTable[prevFen]) qTable[prevFen] = {};
-      if (!qTable[prevFen][move]) qTable[prevFen][move] = 0;
-      qTable[prevFen][move] += reward;
-      saveQTable();
-    }
-
-    function getBestMove(fen) {
-      const legalMoves = game.moves();
-      if (!qTable[fen]) return legalMoves[Math.floor(Math.random() * legalMoves.length)];
-      let best = legalMoves[0];
-      let bestScore = qTable[fen][best] || 0;
-      for (let move of legalMoves) {
-        const score = qTable[fen][move] || 0;
-        if (score > bestScore) {
-          best = move;
-          bestScore = score;
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      const board = game.board();
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const square = document.createElement('div');
+          square.className = 'square ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
+          square.dataset.row = r;
+          square.dataset.col = c;
+          const piece = board[r][c];
+          if (piece) square.textContent = pieceIcons[piece.color === 'w' ? piece.type.toUpperCase() : piece.type];
+          boardEl.appendChild(square);
         }
       }
-      return best;
     }
 
-    const board = Chessboard('board', {
-      draggable: true,
-      position: 'start',
-      onDragStart: (source, piece) => {
-        if (game.game_over() || piece.search(/^b/) !== -1) return false;
-        const legalMoves = game.moves({ square: source, verbose: true }).map(m => m.to);
-        board.set({
-          onSnapEnd: () => {},
-          moveStart: source,
-          moveEnd: (target) => {
-            if (!legalMoves.includes(target)) return false;
-            const move = game.move({ from: source, to: target, promotion: 'q' });
-            board.position(game.fen());
-            setTimeout(makeAIMove, 250);
-            return true;
+    let selected = null;
+    function legalMovesFor(square) {
+      return game.moves({ square, verbose: true }).map(m => m.to);
+    }
+
+    function handleClick(e) {
+      const target = e.target.closest('.square');
+      if (!target) return;
+
+      const file = String.fromCharCode(97 + parseInt(target.dataset.col));
+      const rank = 8 - parseInt(target.dataset.row);
+      const square = file + rank;
+
+      if (selected) {
+        const moves = legalMovesFor(selected);
+        if (moves.includes(square)) {
+          game.move({ from: selected, to: square, promotion: 'q' });
+          selected = null;
+          renderBoard();
+          setTimeout(aiMove, 200);
+          return;
+        } else {
+          selected = null;
+          renderBoard();
+        }
+      }
+
+      if (game.get(square) && game.get(square).color === 'w') {
+        selected = square;
+        const highlights = legalMovesFor(square);
+        renderBoard();
+        document.querySelectorAll('.square').forEach(sq => {
+          const sf = String.fromCharCode(97 + parseInt(sq.dataset.col));
+          const sr = 8 - parseInt(sq.dataset.row);
+          const sqName = sf + sr;
+          if (highlights.includes(sqName)) {
+            sq.classList.add('highlight');
           }
         });
-      },
-      onDrop: (source, target) => {
-        const move = game.move({ from: source, to: target, promotion: 'q' });
-        if (move === null) return 'snapback';
-        board.position(game.fen());
-        setTimeout(makeAIMove, 250);
       }
-    });
-
-    function makeAIMove() {
-      if (game.game_over()) return;
-      const fen = game.fen();
-      const move = getBestMove(fen);
-      const moveObj = game.move(move);
-      board.position(game.fen());
-      learnFromMove(fen, move, 1);
     }
+
+    boardEl.addEventListener('click', handleClick);
+
+    function aiMove() {
+      if (game.game_over()) return;
+
+      const stateKey = game.fen();
+      let data = JSON.parse(localStorage.getItem('chess-ai') || '{}');
+
+      if (!data[stateKey]) {
+        const possible = game.moves();
+        data[stateKey] = {};
+        for (let move of possible) {
+          data[stateKey][move] = 0;
+        }
+      }
+
+      const movePool = Object.entries(data[stateKey]);
+      const bestMove = movePool.reduce((a, b) => (a[1] > b[1] ? a : b))[0];
+      game.move(bestMove);
+
+      // Randomly update learned weights
+      data[stateKey][bestMove] += Math.random();
+
+      localStorage.setItem('chess-ai', JSON.stringify(data));
+      renderBoard();
+    }
+
+    renderBoard();
   </script>
 </body>
 </html>
-
