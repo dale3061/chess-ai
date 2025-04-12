@@ -1,39 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Self-Learning Chess AI</title>
   <style>
     html, body {
       margin: 0;
       padding: 0;
-      width: 100vw;
-      height: 100vh;
+      height: 100%;
+      background: #111;
+      color: white;
       display: flex;
       justify-content: center;
       align-items: center;
-      background-color: #222;
     }
     #board {
       display: grid;
       grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
       width: 90vmin;
       height: 90vmin;
-      border: 4px solid #fff;
+      border: 4px solid white;
     }
     .square {
-      width: 100%;
-      height: 100%;
+      font-size: 4vmin;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 4vmin;
-      font-family: serif;
+      user-select: none;
+      cursor: pointer;
     }
-    .light { background-color: #f0d9b5; }
-    .dark { background-color: #b58863; }
-    .highlight { outline: 3px solid yellow; }
+    .light {
+      background: #eee;
+      color: #000;
+    }
+    .dark {
+      background: #444;
+    }
+    .highlight {
+      background-color: #88c;
+    }
   </style>
 </head>
 <body>
@@ -41,99 +48,98 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0/chess.min.js"></script>
   <script>
-    const boardEl = document.getElementById('board');
-    const game = new Chess();
-    const pieceIcons = {
-      p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
-      P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔'
+    const board = document.getElementById("board");
+    const chess = new Chess();
+    const aiMemory = JSON.parse(localStorage.getItem("ai-memory") || "{}");
+    const pieces = {
+      p: "♟", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚",
+      P: "♙", R: "♖", N: "♘", B: "♗", Q: "♕", K: "♔",
     };
 
-    function renderBoard() {
-      boardEl.innerHTML = '';
-      const board = game.board();
-      for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-          const square = document.createElement('div');
-          square.className = 'square ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
-          square.dataset.row = r;
-          square.dataset.col = c;
-          const piece = board[r][c];
-          if (piece) square.textContent = pieceIcons[piece.color === 'w' ? piece.type.toUpperCase() : piece.type];
-          boardEl.appendChild(square);
+    function drawBoard() {
+      board.innerHTML = "";
+      const pos = chess.board();
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          const square = document.createElement("div");
+          const file = "abcdefgh"[x];
+          const rank = 8 - y;
+          const squareId = file + rank;
+          const piece = pos[y][x];
+
+          square.className = "square " + ((x + y) % 2 === 0 ? "light" : "dark");
+          square.dataset.square = squareId;
+          if (piece) square.textContent = pieces[piece.color === "w" ? piece.type.toUpperCase() : piece.type];
+
+          board.appendChild(square);
         }
       }
     }
 
     let selected = null;
-    function legalMovesFor(square) {
-      return game.moves({ square, verbose: true }).map(m => m.to);
+    function highlightLegalMoves(square) {
+      const moves = chess.moves({ square, verbose: true });
+      document.querySelectorAll(".square").forEach(sq => sq.classList.remove("highlight"));
+      moves.forEach(move => {
+        const el = document.querySelector(`[data-square='${move.to}']`);
+        if (el) el.classList.add("highlight");
+      });
     }
 
-    function handleClick(e) {
-      const target = e.target.closest('.square');
-      if (!target) return;
-
-      const file = String.fromCharCode(97 + parseInt(target.dataset.col));
-      const rank = 8 - parseInt(target.dataset.row);
-      const square = file + rank;
+    board.addEventListener("click", e => {
+      const square = e.target.dataset.square;
+      if (!square) return;
 
       if (selected) {
-        const moves = legalMovesFor(selected);
-        if (moves.includes(square)) {
-          game.move({ from: selected, to: square, promotion: 'q' });
+        const move = chess.move({ from: selected, to: square, promotion: "q" });
+        if (move) {
           selected = null;
-          renderBoard();
-          setTimeout(aiMove, 200);
+          drawBoard();
+          setTimeout(aiMove, 100);
           return;
-        } else {
-          selected = null;
-          renderBoard();
         }
       }
 
-      if (game.get(square) && game.get(square).color === 'w') {
+      if (chess.get(square)?.color === "w") {
         selected = square;
-        const highlights = legalMovesFor(square);
-        renderBoard();
-        document.querySelectorAll('.square').forEach(sq => {
-          const sf = String.fromCharCode(97 + parseInt(sq.dataset.col));
-          const sr = 8 - parseInt(sq.dataset.row);
-          const sqName = sf + sr;
-          if (highlights.includes(sqName)) {
-            sq.classList.add('highlight');
-          }
-        });
+        highlightLegalMoves(square);
+      } else {
+        selected = null;
+        drawBoard();
       }
-    }
-
-    boardEl.addEventListener('click', handleClick);
+    });
 
     function aiMove() {
-      if (game.game_over()) return;
+      const moves = chess.moves();
+      if (chess.game_over() || chess.turn() === "w") return;
 
-      const stateKey = game.fen();
-      let data = JSON.parse(localStorage.getItem('chess-ai') || '{}');
-
-      if (!data[stateKey]) {
-        const possible = game.moves();
-        data[stateKey] = {};
-        for (let move of possible) {
-          data[stateKey][move] = 0;
-        }
+      let best = moves[Math.floor(Math.random() * moves.length)];
+      const fen = chess.fen();
+      if (aiMemory[fen]) {
+        const seen = aiMemory[fen];
+        best = Object.keys(seen).reduce((a, b) => seen[a] > seen[b] ? a : b);
       }
 
-      const movePool = Object.entries(data[stateKey]);
-      const bestMove = movePool.reduce((a, b) => (a[1] > b[1] ? a : b))[0];
-      game.move(bestMove);
-
-      // Randomly update learned weights
-      data[stateKey][bestMove] += Math.random();
-
-      localStorage.setItem('chess-ai', JSON.stringify(data));
-      renderBoard();
+      chess.move(best);
+      drawBoard();
     }
 
-    renderBoard();
+    function saveAIExperience() {
+      const history = chess.history({ verbose: true });
+      for (let i = 0; i < history.length; i++) {
+        if (i % 2 === 1) {
+          const prevFen = history[i - 1].after;
+          const move = history[i].san;
+          if (!aiMemory[prevFen]) aiMemory[prevFen] = {};
+          if (!aiMemory[prevFen][move]) aiMemory[prevFen][move] = 0;
+          aiMemory[prevFen][move] += 1;
+        }
+      }
+      localStorage.setItem("ai-memory", JSON.stringify(aiMemory));
+    }
+
+    window.addEventListener("beforeunload", saveAIExperience);
+    drawBoard();
   </script>
 </body>
 </html>
