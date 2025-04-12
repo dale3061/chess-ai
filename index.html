@@ -1,36 +1,31 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Reinforcement Learning Chess AI</title>
+  <title>Reinforcement Chess AI</title>
   <style>
     body { font-family: sans-serif; text-align: center; }
-    #board { display: grid; grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); margin: 20px auto; border: 2px solid #333; }
-    .square { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 32px; }
+    #board { display: grid; grid-template-columns: repeat(8, 60px); width: 480px; margin: 20px auto; }
+    .tile {
+      width: 60px; height: 60px;
+      display: flex; justify-content: center; align-items: center;
+      font-size: 36px; cursor: pointer;
+    }
     .white { background: #eee; }
     .black { background: #666; color: white; }
-    #status { margin-top: 10px; font-size: 18px; }
+    .selected { background: yellow !important; }
   </style>
 </head>
 <body>
-  <h1>Chess AI Learns From Scratch</h1>
+  <h1>Chess AI (Learn From Scratch)</h1>
   <div id="board"></div>
-  <div id="status">Game starting...</div>
+  <div id="status">Your move (White)</div>
+
   <script>
-    // === Basic Setup ===
-    const boardDiv = document.getElementById("board");
-    const statusDiv = document.getElementById("status");
-
-    const PIECES = {
-      P: "♙", R: "♖", N: "♘", B: "♗", Q: "♕", K: "♔",
-      p: "♟︎", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚"
+    const pieces = {
+      r: "♜", n: "♞", b: "♝", q: "♛", k: "♚", p: "♟",
+      R: "♖", N: "♘", B: "♗", Q: "♕", K: "♔", P: "♙"
     };
-
-    let board = [];
-    let whiteTurn = true;
-
-    const START_FEN = [
+    let board = [
       ["r","n","b","q","k","b","n","r"],
       ["p","p","p","p","p","p","p","p"],
       ["","","","","","","",""],
@@ -40,77 +35,116 @@
       ["P","P","P","P","P","P","P","P"],
       ["R","N","B","Q","K","B","N","R"]
     ];
+    let selected = null;
+    let boardDiv = document.getElementById("board");
+    let status = document.getElementById("status");
 
-    function resetBoard() {
-      board = START_FEN.map(row => [...row]);
-      whiteTurn = true;
-      drawBoard();
-    }
-
-    function drawBoard() {
+    function renderBoard() {
       boardDiv.innerHTML = "";
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
-          const sq = document.createElement("div");
-          sq.className = `square ${(r + c) % 2 === 0 ? "white" : "black"}`;
-          sq.dataset.row = r;
-          sq.dataset.col = c;
-          sq.textContent = PIECES[board[r][c]] || "";
-          sq.onclick = () => handleClick(r, c);
-          boardDiv.appendChild(sq);
+          const tile = document.createElement("div");
+          tile.className = "tile " + ((r + c) % 2 === 0 ? "white" : "black");
+          if (selected && selected[0] === r && selected[1] === c) tile.classList.add("selected");
+          tile.textContent = pieces[board[r][c]] || "";
+          tile.onclick = () => handleClick(r, c);
+          boardDiv.appendChild(tile);
         }
       }
     }
 
-    let selected = null;
+    function isWhite(piece) {
+      return piece && piece === piece.toUpperCase();
+    }
+
     function handleClick(r, c) {
+      const piece = board[r][c];
       if (selected) {
-        movePiece(selected[0], selected[1], r, c);
-        selected = null;
-        drawBoard();
-        setTimeout(aiMove, 100);
-      } else {
+        const [sr, sc] = selected;
+        if ((sr !== r || sc !== c) && isWhite(board[sr][sc])) {
+          movePiece(sr, sc, r, c);
+          selected = null;
+          renderBoard();
+          setTimeout(aiMove, 300);
+        } else {
+          selected = null;
+          renderBoard();
+        }
+      } else if (isWhite(piece)) {
         selected = [r, c];
+        renderBoard();
       }
     }
 
-    function movePiece(r1, c1, r2, c2) {
-      const piece = board[r1][c1];
-      if (!piece || (whiteTurn && piece === piece.toLowerCase()) || (!whiteTurn && piece === piece.toUpperCase())) return;
-      board[r2][c2] = piece;
-      board[r1][c1] = "";
-      whiteTurn = !whiteTurn;
+    function movePiece(sr, sc, r, c) {
+      board[r][c] = board[sr][sc];
+      board[sr][sc] = "";
     }
 
-    function aiMove() {
+    function getLegalMoves(color = "black") {
       const moves = [];
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
           const piece = board[r][c];
-          if (!piece || piece !== piece.toLowerCase()) continue;
-          for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-              const nr = r + dr;
-              const nc = c + dc;
-              if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && (dr !== 0 || dc !== 0)) {
-                if (!board[nr][nc] || board[nr][nc] === board[nr][nc].toUpperCase()) {
-                  moves.push([[r, c], [nr, nc]]);
-                }
+          if (!piece || (color === "black" && piece === piece.toUpperCase()) || (color === "white" && piece === piece.toLowerCase())) continue;
+
+          const dirs = [
+            [1, 0], [-1, 0], [0, 1], [0, -1],
+            [1, 1], [1, -1], [-1, 1], [-1, -1]
+          ];
+          dirs.forEach(([dr, dc]) => {
+            const nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+              const target = board[nr][nc];
+              if (!target || isWhite(target)) {
+                moves.push({ from: [r, c], to: [nr, nc] });
               }
             }
-          }
+          });
         }
       }
-      if (moves.length === 0) {
-        statusDiv.textContent = "AI has no moves. You win!";
-        return;
-      }
-      const [from, to] = moves[Math.floor(Math.random() * moves.length)];
-      movePiece(from[0], from[1], to[0], to[1]);
-      drawBoard();
+      return moves;
     }
 
-    resetBoard();
+    // Basic reinforcement: remember which moves worked well
+    const memory = new Map();
+
+    function aiMove() {
+      const moves = getLegalMoves("black");
+      if (moves.length === 0) {
+        status.textContent = "You win!";
+        return;
+      }
+
+      let best = null;
+      let bestScore = -Infinity;
+      for (let move of moves) {
+        const key = JSON.stringify(move);
+        const score = memory.get(key) || 0;
+        if (score > bestScore) {
+          best = move;
+          bestScore = score;
+        }
+      }
+
+      // Explore 20% of the time
+      if (!best || Math.random() < 0.2) {
+        best = moves[Math.floor(Math.random() * moves.length)];
+      }
+
+      const { from, to } = best;
+      const captured = board[to[0]][to[1]];
+      movePiece(...from, ...to);
+      renderBoard();
+      status.textContent = "Your move (White)";
+
+      // Reinforce the move
+      const key = JSON.stringify(best);
+      const prev = memory.get(key) || 0;
+      memory.set(key, prev + (captured ? 5 : 1));
+    }
+
+    renderBoard();
   </script>
 </body>
 </html>
