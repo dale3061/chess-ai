@@ -5,170 +5,135 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Self-Learning Chess AI</title>
   <style>
-    body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
-    h1 { margin-top: 20px; }
-    #board { display: grid; grid-template-columns: repeat(8, 60px); margin: 20px auto; gap: 2px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background: #1a1a1a; font-family: sans-serif; display: flex; justify-content: center; align-items: center; }
+    #game { width: 100vmin; height: 100vmin; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); border: 4px solid #fff; }
     .square {
-      width: 60px; height: 60px; line-height: 60px;
+      width: 100%; height: 100%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 32px; cursor: pointer;
+      font-size: 3vmin; cursor: pointer;
     }
-    .light { background: #eee; }
-    .dark { background: #999; }
-    .highlight { background: yellow !important; }
-    #status { margin: 10px; font-weight: bold; }
+    .light { background-color: #f0d9b5; }
+    .dark { background-color: #b58863; }
+    .highlight { outline: 4px solid yellow; }
+    #status { position: absolute; top: 10px; color: white; font-size: 1.5em; text-align: center; width: 100%; }
   </style>
 </head>
 <body>
-  <h1>Self-Learning Chess AI</h1>
   <div id="status">Loading...</div>
-  <div id="board"></div>
-
+  <div id="game"></div>
   <script>
-    const boardDiv = document.getElementById("board");
-    const statusDiv = document.getElementById("status");
-    const pieces = {
-      r: "♜", n: "♞", b: "♝", q: "♛", k: "♚", p: "♟",
-      R: "♖", N: "♘", B: "♗", Q: "♕", K: "♔", P: "♙"
-    };
+    const gameEl = document.getElementById("game");
+    const statusEl = document.getElementById("status");
 
     let board = [];
     let selected = null;
-    let highlights = [];
-    let tries = 0;
+    let turn = "w"; // 'w' for white (human), 'b' for black (AI)
 
-    const storageKey = "ai-chess-memory";
-    let memory = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const PIECES = {
+      w: { K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙' },
+      b: { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' },
+    };
 
     function initBoard() {
-      const layout = [
-        ["r","n","b","q","k","b","n","r"],
-        ["p","p","p","p","p","p","p","p"],
-        ["","","","","","","",""],
-        ["","","","","","","",""],
-        ["","","","","","","",""],
-        ["","","","","","","",""],
-        ["P","P","P","P","P","P","P","P"],
-        ["R","N","B","Q","K","B","N","R"]
-      ];
-      board = layout.map(row => row.slice());
-    }
-
-    function drawBoard() {
-      boardDiv.innerHTML = "";
-      for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-          const square = document.createElement("div");
-          square.className = `square ${(r+c)%2===0 ? 'light' : 'dark'}`;
-          square.dataset.row = r;
-          square.dataset.col = c;
-          const val = board[r][c];
-          if (val) square.textContent = pieces[val];
-          if (highlights.some(([hr,hc]) => hr === r && hc === c)) square.classList.add("highlight");
-          square.onclick = () => handleClick(r, c);
-          boardDiv.appendChild(square);
-        }
-      }
-    }
-
-    function handleClick(r, c) {
-      const piece = board[r][c];
-      if (selected) {
-        const [sr, sc] = selected;
-        if (validMoves(sr, sc).some(([mr, mc]) => mr === r && mc === c)) {
-          movePiece(sr, sc, r, c);
-          selected = null;
-          highlights = [];
-          drawBoard();
-          setTimeout(aiMove, 500);
-        } else {
-          selected = null;
-          highlights = [];
-        }
-      } else if (piece && piece === piece.toUpperCase()) {
-        selected = [r, c];
-        highlights = validMoves(r, c);
-      }
-      drawBoard();
-    }
-
-    function movePiece(sr, sc, dr, dc) {
-      board[dr][dc] = board[sr][sc];
-      board[sr][sc] = "";
-    }
-
-    function validMoves(r, c) {
-      const piece = board[r][c];
-      const moves = [];
-      const isWhite = piece === piece.toUpperCase();
-      if (!piece) return moves;
-      const directions = {
-        N: [[-2,-1], [-1,-2], [-2,1], [-1,2], [2,-1], [1,-2], [2,1], [1,2]],
-        B: [[-1,-1],[1,1],[1,-1],[-1,1]],
-        R: [[-1,0],[1,0],[0,-1],[0,1]],
-        Q: [[-1,-1],[1,1],[1,-1],[-1,1],[-1,0],[1,0],[0,-1],[0,1]],
-        K: [[-1,-1],[1,1],[1,-1],[-1,1],[-1,0],[1,0],[0,-1],[0,1]]
+      const empty = () => ({ piece: null, color: null });
+      board = Array(8).fill(null).map(() => Array(8).fill(null).map(empty));
+      const setup = (row, color) => {
+        board[row] = [
+          { piece: 'R', color }, { piece: 'N', color }, { piece: 'B', color }, { piece: 'Q', color },
+          { piece: 'K', color }, { piece: 'B', color }, { piece: 'N', color }, { piece: 'R', color }
+        ];
+        board[color === 'w' ? 6 : 1] = Array(8).fill({ piece: 'P', color });
       };
-      function push(r2, c2) {
-        if (r2 < 0 || c2 < 0 || r2 > 7 || c2 > 7) return;
-        const target = board[r2][c2];
-        if (!target || (isWhite !== (target === target.toUpperCase())))
-          moves.push([r2, c2]);
+      setup(0, 'b');
+      setup(7, 'w');
+    }
+
+    function renderBoard() {
+      gameEl.innerHTML = "";
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          const square = document.createElement("div");
+          square.className = `square ${(x + y) % 2 === 0 ? "light" : "dark"}`;
+          square.dataset.x = x;
+          square.dataset.y = y;
+
+          const { piece, color } = board[y][x];
+          if (piece) square.textContent = PIECES[color][piece];
+
+          square.addEventListener("click", () => onSquareClick(x, y));
+
+          if (selected && selected.x === x && selected.y === y)
+            square.classList.add("highlight");
+
+          gameEl.appendChild(square);
+        }
       }
-      if (piece.toUpperCase() === "P") {
-        let dir = isWhite ? -1 : 1;
-        if (!board[r+dir]?.[c]) moves.push([r+dir, c]);
-        if (!board[r+dir]?.[c] && ((isWhite && r===6) || (!isWhite && r===1)) && !board[r+2*dir][c])
-          moves.push([r+2*dir, c]);
-        for (let dc of [-1,1]) {
-          let cap = board[r+dir]?.[c+dc];
-          if (cap && (cap === cap.toUpperCase()) !== isWhite)
-            moves.push([r+dir, c+dc]);
+      statusEl.textContent = `${turn === 'w' ? "Your" : "AI"} turn`;
+    }
+
+    function onSquareClick(x, y) {
+      if (turn !== 'w') return;
+      const clicked = board[y][x];
+
+      if (selected) {
+        if (isLegalMove(selected.x, selected.y, x, y)) {
+          movePiece(selected.x, selected.y, x, y);
+          turn = 'b';
+          selected = null;
+          renderBoard();
+          setTimeout(aiMove, 400);
+          return;
         }
-      } else if (piece.toUpperCase() === "N") directions.N.forEach(([dr, dc]) => push(r+dr, c+dc));
-      else if (["B","R","Q"].includes(piece.toUpperCase())) {
-        for (let [dr, dc] of directions[piece.toUpperCase()]) {
-          for (let i = 1; i < 8; i++) {
-            let nr = r + dr*i, nc = c + dc*i;
-            if (nr < 0 || nc < 0 || nr > 7 || nc > 7) break;
-            let target = board[nr][nc];
-            if (!target) moves.push([nr,nc]);
-            else {
-              if ((target === target.toUpperCase()) !== isWhite) moves.push([nr,nc]);
-              break;
-            }
-          }
-        }
-      } else if (piece.toUpperCase() === "K") directions.K.forEach(([dr, dc]) => push(r+dr, c+dc));
-      return moves;
+        selected = null;
+      } else if (clicked.color === 'w') {
+        selected = { x, y };
+      }
+      renderBoard();
+    }
+
+    function movePiece(fromX, fromY, toX, toY) {
+      board[toY][toX] = board[fromY][fromX];
+      board[fromY][fromX] = { piece: null, color: null };
+    }
+
+    function isLegalMove(fromX, fromY, toX, toY) {
+      const moving = board[fromY][fromX];
+      const target = board[toY][toX];
+      if (!moving.piece || moving.color !== turn) return false;
+      if (target.color === turn) return false;
+      return true; // basic validation — can add full chess rules later
     }
 
     function aiMove() {
-      let moves = [];
-      for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-          let p = board[r][c];
-          if (p && p === p.toLowerCase()) {
-            let options = validMoves(r,c);
-            options.forEach(([dr,dc]) => moves.push([[r,c],[dr,dc]]));
+      // basic AI: choose a random valid move
+      const moves = [];
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          const cell = board[y][x];
+          if (cell.color === 'b') {
+            for (let ty = 0; ty < 8; ty++) {
+              for (let tx = 0; tx < 8; tx++) {
+                if (isLegalMove(x, y, tx, ty)) {
+                  moves.push({ fromX: x, fromY: y, toX: tx, toY: ty });
+                }
+              }
+            }
           }
         }
       }
       if (moves.length === 0) {
-        statusDiv.textContent = "Game Over — You Win!";
+        statusEl.textContent = "AI has no legal moves. You win!";
         return;
       }
-      const move = moves[Math.floor(Math.random()*moves.length)];
-      movePiece(...move[0], ...move[1]);
-      tries++;
-      localStorage.setItem(storageKey, JSON.stringify(memory));
-      drawBoard();
-      statusDiv.textContent = `AI Tries: ${tries}`;
+      const move = moves[Math.floor(Math.random() * moves.length)];
+      movePiece(move.fromX, move.fromY, move.toX, move.toY);
+      turn = 'w';
+      renderBoard();
     }
 
     initBoard();
-    drawBoard();
-    statusDiv.textContent = "Game Ready — Your move.";
+    renderBoard();
   </script>
 </body>
 </html>
